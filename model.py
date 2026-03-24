@@ -19,11 +19,12 @@ Architecture reference (``model.config``)
   Hidden-state index k → output of transformer layer k  (k = 1 … 24)
 
 Students interact with the hidden states only through ``aggregation.py``.
+``extract_hidden_states`` always returns **raw** per-layer tensors; call
+``aggregation.aggregation_and_feature_extraction`` afterwards to obtain the
+compact feature vectors used by the probe classifier.
 """
 
 from __future__ import annotations
-
-from typing import Callable
 
 import torch
 from tqdm import tqdm
@@ -69,59 +70,38 @@ def extract_hidden_states(
     device: torch.device,
     batch_size: int = 4,
     max_length: int = _MAX_LENGTH,
-    aggregate_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
 ) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
     """Extract hidden states from all layers for a list of input texts.
 
-    Processes texts in mini-batches and returns per-sample tensors.
-
-    When ``aggregate_fn`` is provided the aggregation is applied **during**
-    extraction, immediately after each forward pass, so only the compact
-    feature vectors are kept in memory.  This avoids accumulating the full
-    ``(n_layers, seq_len, hidden_dim)`` tensor for every sample and is the
-    recommended mode when GPU/CPU memory is limited.
-
-    When ``aggregate_fn`` is ``None`` the raw hidden states are returned,
-    giving callers full flexibility for downstream processing.
+    Processes texts in mini-batches and returns per-sample raw tensors.
+    Call ``aggregation.aggregation_and_feature_extraction`` on the returned
+    lists to produce compact feature vectors suitable for the probe classifier.
 
     Args:
-        model:        Qwen2.5-0.5B model (from ``get_model_and_tokenizer``).
-        tokenizer:    Corresponding tokenizer.
-        texts:        List of input strings to encode.  Each string should be
-                      the concatenation of the prompt and the generated response.
-        device:       Device to run inference on.
-        batch_size:   Number of texts processed per forward pass.  Use a small
-                      value (1–4) to stay within GPU memory limits on free Colab.
-        max_length:   Maximum token sequence length; inputs are truncated /
-                      padded to this length.
-        aggregate_fn: Optional callable with the same signature as
-                      ``aggregation.aggregate``:
-                      ``(hidden_states, attention_mask) -> feature_vector``.
-                      When provided, it is applied in-place during extraction
-                      and each entry in the returned ``all_hidden_states`` list
-                      will be a 1-D tensor of shape ``(feature_dim,)`` instead
-                      of ``(n_layers, seq_len, hidden_dim)``.  The returned
-                      ``all_attention_masks`` list will contain empty tensors in
-                      this case (the masks are consumed by ``aggregate_fn``).
+        model:      Qwen2.5-0.5B model (from ``get_model_and_tokenizer``).
+        tokenizer:  Corresponding tokenizer.
+        texts:      List of input strings to encode.  Each string should be
+                    the concatenation of the prompt and the generated response.
+        device:     Device to run inference on.
+        batch_size: Number of texts processed per forward pass.  Use a small
+                    value (1–4) to stay within GPU memory limits on free Colab.
+        max_length: Maximum token sequence length; inputs are truncated /
+                    padded to this length.
 
     Returns:
-        A ``(all_hidden_states, all_attention_masks)`` tuple where, when
-        ``aggregate_fn`` is ``None``:
+        A ``(all_hidden_states, all_attention_masks)`` tuple where:
 
-        - ``all_hidden_states[i]`` is a tensor of shape
+        - ``all_hidden_states[i]`` is a float32 tensor of shape
           ``(n_layers, seq_len, hidden_dim)`` for sample ``i``.
+          ``n_layers = num_hidden_layers + 1`` (embedding layer + transformer
+          layers).
         - ``all_attention_masks[i]`` is a 1-D tensor of length ``seq_len``
-          indicating real (1) vs. padding (0) tokens.
-
-        When ``aggregate_fn`` is provided:
-
-        - ``all_hidden_states[i]`` is a 1-D tensor of shape ``(feature_dim,)``.
-        - ``all_attention_masks[i]`` is an empty tensor (masks are consumed
-          internally by ``aggregate_fn``).
+          with 1 for real tokens and 0 for padding.
 
     Note:
         Hidden states are returned on CPU to conserve GPU memory.
-        The ``bfloat16`` dtype is preserved in the returned tensors.
+        The raw tensors can be large (25 × seq_len × 896 per sample);
+        free them after aggregation to reclaim memory.
     """
     model.to(device)
     model.eval()
@@ -162,17 +142,8 @@ def extract_hidden_states(
         mask = attention_mask.cpu()
 
         for i in range(hidden.size(0)):
-            hs = hidden[i].cpu().float()   # (n_layers, seq_len, hidden_dim)
-            m = mask[i]                    # (seq_len,)
-
-            if aggregate_fn is not None:
-                # Apply aggregation immediately; discard the raw hidden states
-                # to save memory.
-                all_hidden_states.append(aggregate_fn(hs, m))  # (feature_dim,)
-                all_attention_masks.append(torch.tensor([]))
-            else:
-                all_hidden_states.append(hs)
-                all_attention_masks.append(m)
+            all_hidden_states.append(hidden[i].cpu().float())  # (n_layers, seq_len, hidden_dim)
+            all_attention_masks.append(mask[i])                # (seq_len,)
 
     return all_hidden_states, all_attention_masks
 

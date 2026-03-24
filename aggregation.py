@@ -1,12 +1,24 @@
 """
-aggregation.py — Token aggregation strategy (student-implemented).
+aggregation.py — Token aggregation strategy and feature extraction
+               (student-implemented).
 
-Students: Implement ``aggregate`` to convert a per-token hidden-state tensor
-into a single fixed-length feature vector used by the probe classifier.
+This module is responsible for converting the raw per-token, per-layer hidden
+states produced by ``model.extract_hidden_states`` into a flat feature vector
+that is fed to the probe classifier (``probe.HallucinationProbe``).
 
-The function receives the hidden states from *all* transformer layers for a
-single sample, giving you full control over which layer to inspect and how to
-combine the token representations.
+The pipeline has **two stages** that you can customise independently:
+
+  1. ``aggregate`` — select which transformer layers and which token positions
+     to look at, and pool them into a single fixed-length vector.
+
+  2. ``extract_geometric_features`` — optionally compute hand-crafted geometric
+     or statistical features from the hidden states (disabled by default).
+     Enable it by setting ``USE_GEOMETRIC = True`` in ``solution.ipynb``.
+
+These two stages are wired together by ``aggregation_and_feature_extraction``,
+which is the **single entry point** called from the notebook.  You should not
+need to change ``aggregation_and_feature_extraction`` itself; focus on
+``aggregate`` and, if you want to experiment, on ``extract_geometric_features``.
 
 Qwen2.5-0.5B layer index reference
 -----------------------------------
@@ -89,3 +101,106 @@ def aggregate(
 
     return feature
     # ------------------------------------------------------------------
+
+
+def extract_geometric_features(
+    hidden_states: torch.Tensor,
+    attention_mask: torch.Tensor,
+) -> torch.Tensor:
+    """Extract hand-crafted geometric / statistical features from hidden states.
+
+    These features complement the aggregated hidden-state vector produced by
+    ``aggregate`` and can help the probe pick up on properties that a fixed
+    pooling strategy might miss (e.g. how much representations vary across
+    layers, or the overall magnitude of activations).
+
+    This function is called only when ``USE_GEOMETRIC = True`` is set in
+    ``solution.ipynb`` (via the ``use_geometric`` flag passed to
+    ``aggregation_and_feature_extraction``).  When ``USE_GEOMETRIC = False``
+    (the default) this function is **not called** and contributes nothing to
+    the feature matrix, so you can safely leave it as a stub.
+
+    Args:
+        hidden_states:  Tensor of shape ``(n_layers, seq_len, hidden_dim)``.
+        attention_mask: 1-D tensor of shape ``(seq_len,)`` with 1 for real
+                        tokens and 0 for padding.
+
+    Returns:
+        A 1-D float tensor of shape ``(n_geometric_features,)``.  The length
+        must be the same for every sample in the dataset.
+
+    Student task:
+        Replace the stub below with your own features.  Ideas to explore:
+
+        **Layer-wise norms** — how does activation magnitude change across layers?
+          real_mask = attention_mask.bool()
+          layer_norms = hidden_states[:, real_mask, :].norm(dim=-1).mean(dim=-1)
+          # → shape (n_layers,)
+
+        **Representation drift** — cosine similarity between consecutive layers:
+          from torch.nn.functional import cosine_similarity
+          drifts = [cosine_similarity(hidden_states[l], hidden_states[l+1], dim=-1)
+                    for l in range(hidden_states.size(0) - 1)]
+          # each drift has shape (seq_len,) → pool over real tokens
+
+        **Sequence length** — simple proxy for answer verbosity:
+          seq_len_feature = attention_mask.float().sum().unsqueeze(0)  # scalar
+    """
+    # ------------------------------------------------------------------
+    # STUDENT: Replace or extend the geometric feature extraction below.
+    # ------------------------------------------------------------------
+
+    # Placeholder: returns an empty tensor (no geometric features).
+    # When you implement real features, return a 1-D tensor instead.
+    return torch.zeros(0)
+
+    # ------------------------------------------------------------------
+
+
+def aggregation_and_feature_extraction(
+    hidden_states: torch.Tensor,
+    attention_mask: torch.Tensor,
+    use_geometric: bool = False,
+) -> torch.Tensor:
+    """Aggregate hidden states and optionally append geometric features.
+
+    This is the **main entry point** called from ``solution.ipynb`` for every
+    sample in the dataset.  It combines:
+
+      1. The aggregated hidden-state vector from ``aggregate`` — always
+         included.
+      2. (Optional) hand-crafted geometric features from
+         ``extract_geometric_features`` — included only when
+         ``use_geometric=True``.
+
+    The two parts are concatenated into a single 1-D feature vector that is
+    then stacked into the feature matrix ``X`` and passed to the probe
+    classifier.
+
+    Args:
+        hidden_states:  Tensor of shape ``(n_layers, seq_len, hidden_dim)``
+                        for a **single sample**, as returned by
+                        ``model.extract_hidden_states``.
+        attention_mask: 1-D tensor of shape ``(seq_len,)`` with 1 for real
+                        tokens and 0 for padding, also from
+                        ``model.extract_hidden_states``.
+        use_geometric:  Whether to append geometric features produced by
+                        ``extract_geometric_features``.  Controlled by the
+                        ``USE_GEOMETRIC`` flag in ``solution.ipynb``.
+                        Defaults to ``False``.
+
+    Returns:
+        A 1-D float tensor of shape ``(feature_dim,)`` where:
+
+        - ``feature_dim = hidden_dim`` (or larger if ``aggregate`` returns a
+          multi-layer concatenation) when ``use_geometric=False``.
+        - ``feature_dim = hidden_dim + n_geometric_features`` when
+          ``use_geometric=True``.
+    """
+    agg_features = aggregate(hidden_states, attention_mask)  # (feature_dim,)
+
+    if use_geometric:
+        geo_features = extract_geometric_features(hidden_states, attention_mask)
+        return torch.cat([agg_features, geo_features], dim=0)
+
+    return agg_features

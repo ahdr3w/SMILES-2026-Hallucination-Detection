@@ -13,10 +13,10 @@ attends to the entire preceding context.
 
 Architecture reference (``model.config``)
 ------------------------------------------
-  ``model.config.num_hidden_layers``  — number of transformer layers (≈ 34)
-  ``model.config.hidden_size``        — hidden dimension per token  (≈ 2560)
+  ``model.config.num_hidden_layers``  — number of transformer layers (24)
+  ``model.config.hidden_size``        — hidden dimension per token  (896)
   Hidden-state index 0 → token embeddings after positional encoding
-  Hidden-state index k → output of transformer layer k  (k = 1 … num_hidden_layers)
+  Hidden-state index k → output of transformer layer k  (k = 1 … 24)
 
 Students interact with the hidden states only through ``aggregation.py``.
 """
@@ -38,9 +38,9 @@ def get_model_and_tokenizer(
 ) -> tuple[AutoModelForCausalLM, AutoTokenizer]:
     """Load the pre-trained Qwen2.5-0.5B model and its tokenizer.
 
-    The model is loaded in ``bfloat16`` to fit within the memory budget of a
-    free Google Colab T4 GPU (≈ 15 GB VRAM) while still delivering full
-    representational fidelity for hidden-state extraction.
+    The model is loaded in ``bfloat16`` to keep the memory footprint small.
+    Qwen2.5-0.5B fits comfortably on a free Google Colab T4 GPU (≈ 15 GB
+    VRAM) and runs efficiently on CPU for smaller datasets.
 
     The model is returned in evaluation mode with hidden-state output enabled.
 

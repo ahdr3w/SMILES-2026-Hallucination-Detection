@@ -11,29 +11,35 @@ commonly called **hallucinations**. Detecting such outputs is a key problem in
 building reliable AI systems.
 
 In this challenge you will build a lightweight hallucination detector for
-**Gemma-3-4b-it** using **representation-based methods**: extract hidden states
-from the model's transformer layers, then train a linear probe (or a small
-classifier) on top to predict whether a generated response is truthful or
-hallucinated.
+**Qwen2.5-0.5B** using **representation-based methods**: extract hidden states
+from the model's transformer layers, then train a probe classifier on top to
+predict whether a generated response is truthful or hallucinated.
 
-This is a self-contained, resource-friendly project.  The model fits in the
-15 GB VRAM of a free Google Colab T4 GPU (loaded in bfloat16).  Feature
-extraction over a few hundred samples takes 1–5 minutes on GPU.
+This is a self-contained, resource-friendly project.  Qwen2.5-0.5B (0.5 B
+parameters, bfloat16) fits comfortably on a free Google Colab T4 GPU (≈ 15 GB
+VRAM) and on most modern CPUs.  Feature extraction over a few hundred samples
+takes roughly 1–5 minutes on GPU.
 
 ---
 
 ## Quick Start
 
-### 1. Install dependencies
+### 1. Open the notebook
 
-```bash
-pip install -r requirements.txt
-```
+Open **`solution.ipynb`** in Jupyter or Google Colab.
 
-### 2. Open the evaluation notebook
+The first cell contains ready-to-use setup commands for both Google Colab and
+local environments (git clone, venv creation, dependency install).
 
-Open **`validate.ipynb`** in Jupyter or Google Colab and run the cells from top
-to bottom.
+### 2. Run all cells
+
+After the setup cell, run the remaining cells from top to bottom:
+
+1. **Load dataset** — reads the CSV and builds input texts
+2. **Extract features** — forward pass through Qwen2.5-0.5B (run once)
+3. **Split data** — calls `splitting.split_data(y, df)` from `splitting.py`
+4. **Evaluate** — trains your probe and reports metrics
+5. **Save results** — writes `results.json`
 
 **Recommended**: use a GPU runtime (`Runtime → Change runtime type → T4 GPU`)
 and set `BATCH_SIZE = 4` in the configuration cell.
@@ -46,13 +52,10 @@ and set `BATCH_SIZE = 4` in the configuration cell.
 |------|-------------------|
 | `aggregation.py` | Layer selection and token-pooling strategy |
 | `probe.py` | Probe classifier (skeleton: MLP via `torch.nn.Module`) |
-| `validate.ipynb` | **Splitting strategy** and evaluation loop |
+| `splitting.py` | Train / validation / test split strategy |
 
-> `splitting.py` contains a reusable helper (`split_data`) that the notebook
-> imports by default — you may modify it or write your splitting logic directly
-> in the notebook.
-
-**Do not edit** `model.py` or `dataset.py` — these are fixed infrastructure.
+**Do not edit** `model.py` or `evaluate.py` — these are fixed infrastructure
+and will be replaced with the original versions during grading.
 
 ---
 
@@ -62,10 +65,10 @@ and set `BATCH_SIZE = 4` in the configuration cell.
 
 Convert a per-token hidden-state tensor into a single feature vector.
 
-Gemma-3-4b-it is a **decoder-only** model with approximately 34 transformer
-layers (plus an embedding layer).  Because it processes tokens left-to-right,
-the **last real token** is the natural aggregation target — it attends to the
-entire input sequence.  You control:
+Qwen2.5-0.5B is a **decoder-only** model with 24 transformer layers (plus an
+embedding layer) and a hidden dimension of 896.  Because it processes tokens
+left-to-right, the **last real token** is the natural aggregation target — it
+attends to the entire input sequence.  You control:
 
 * **Which layer(s) to use** — early layers capture syntax; later layers
   capture semantics.
@@ -85,7 +88,7 @@ feature vector — the natural choice for decoder-only models.  Useful alternati
 Implement a binary classifier (`fit`, `predict`, `predict_proba`) that takes
 the aggregated feature vectors and outputs hallucination predictions.
 
-The class now extends ``torch.nn.Module``, making it easy to define custom
+The class extends ``torch.nn.Module``, making it easy to define custom
 neural-network architectures in ``_build_network`` and experiment with
 different training loops in ``fit``.  The skeleton uses a one-hidden-layer MLP
 with Adam optimisation.  Suggestions for improvement:
@@ -97,21 +100,25 @@ with Adam optimisation.  Suggestions for improvement:
 
 ### `splitting.py` — Data splitting strategy
 
-Implement the ``split_data`` function to control how the dataset is divided
-into train, validation, and test subsets.
+Implement the ``split_data(y, df)`` function to control how the dataset is
+divided into train, validation, and test subsets.
 
-The skeleton performs two stratified random splits (preserving the class
-ratio).  Suggestions for improvement:
+``split_data`` returns a **list of ``(idx_train, idx_val, idx_test)`` tuples**
+of integer index arrays.  A single-element list gives one train/val/test split;
+a K-element list triggers K-fold cross-validation (metrics are averaged).
 
-* Stratified k-fold cross-validation
-* Group-aware splits (keep rows with the same question in the same fold)
-* Time-ordered splits using the ``id`` column as a temporal index
+The skeleton performs a single stratified random split.  Suggestions:
+
+* Stratified k-fold cross-validation (`StratifiedKFold`)
+* Group-aware splits — keep rows with the same question in the same fold
+  (pass `df` and use `df["question"]` as the group key)
+* Time-ordered splits using the sample index as a temporal proxy
 
 ---
 
 ## Evaluation Checkpoints
 
-`validate.ipynb` runs three checkpoints for each split:
+`evaluate.py` runs three checkpoints for each split:
 
 | # | Checkpoint | What it measures |
 |---|-----------|-----------------|
@@ -129,34 +136,23 @@ ratio).  Suggestions for improvement:
 
 ## Dataset Format
 
-The dataset is a CSV file with the following columns:
+The dataset is a CSV file with (at minimum) the following columns:
 
 | Column | Description |
 |--------|-------------|
-| `id` | Unique sample identifier |
-| `instruction` | Optional system instruction |
-| `question` | The question posed to the model |
-| `prompt_template` | Template used to construct `prompt` |
-| `gold_response` | The correct reference answer (**shadowed to `null` in the test split**) |
-| `generated_response` | The model's generated answer (what we classify) |
-| `response_history` | Dialogue history (if any) |
-| `context` | Supporting context passage (if any) |
 | `prompt` | The full input prompt given to the model |
-| `hallucination` | Ground-truth label: 0 = truthful, 1 = hallucinated |
+| `response` | The model's generated answer (what we classify) |
+| `label` | Ground-truth binary label: 0 = truthful, 1 = hallucinated |
 
-The text fed to the LLM for hidden-state extraction is
-`prompt + "\n" + generated_response`.
-
-> **Note:** `gold_response` is `null` in the **test split** to prevent students
-> from building a trivial detector by comparing `generated_response` to the
-> gold answer.
+The text fed to Qwen2.5-0.5B for hidden-state extraction is
+`prompt + "\n" + response`.
 
 ---
 
 ## Output JSON
 
-Results are saved to `results.json` (path set by `OUTPUT_FILE` in the notebook).
-When using the default single split the file looks like:
+Results are saved to `results.json` (path set by `OUTPUT_FILE` in the
+notebook).  When using the default single split the file looks like:
 
 ```json
 {
@@ -179,7 +175,7 @@ When using the default single split the file looks like:
   "avg_test_accuracy": 0.69,
   "avg_test_f1": 0.68,
   "avg_test_auroc": 0.75,
-  "feature_dim": 2560,
+  "feature_dim": 896,
   "n_samples": 200,
   "n_folds": 1,
   "extract_time_s": 120.5
@@ -213,8 +209,7 @@ When using k-fold the `folds` array contains one entry per fold and the
 
 ## Deliverables
 
-* Your modified `probe.py`, `aggregation.py`, and `validate.ipynb` (with your
-  chosen splitting strategy)
+* Your modified `aggregation.py`, `probe.py`, and `splitting.py`
 * A short report describing your approach, what worked, and key insights
 
 ---

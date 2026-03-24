@@ -5,12 +5,12 @@ Students: Implement ``HallucinationProbe`` to classify feature vectors as
 truthful (0) or hallucinated (1).  The skeleton provides a small MLP trained
 with PyTorch — you are expected to extend it.
 
-``validate.ipynb`` calls the probe as follows::
+``solution.ipynb`` calls the probe via ``evaluate.run_evaluation`` as follows::
 
     probe = HallucinationProbe()
     probe.fit(X_train, y_train)
-    y_pred = probe.predict(X_val)
-    y_prob = probe.predict_proba(X_val)   # for AUROC
+    y_pred = probe.predict(X_test)
+    y_prob = probe.predict_proba(X_test)   # for AUROC
 
 All three methods must be implemented and their signatures must not change.
 ``X`` is a 2-D NumPy array of shape ``(n_samples, feature_dim)``; ``y`` is

@@ -8,18 +8,17 @@ The function receives the hidden states from *all* transformer layers for a
 single sample, giving you full control over which layer to inspect and how to
 combine the token representations.
 
-Gemma-3-4b-it layer index reference
---------------------------------------
-Gemma-3-4b-it is a **decoder-only** (causal) language model.  It contains
-approximately 34 transformer layers plus an embedding layer:
+Qwen2.5-0.5B layer index reference
+-----------------------------------
+Qwen2.5-0.5B is a **decoder-only** (causal) language model.  It contains
+24 transformer layers plus an embedding layer:
 
-  Index 0           → token embedding layer (after positional encoding)
-  Index 1 – 34      → transformer layers (low → high level representations)
-  Index -1 / [-1]   → final transformer layer (richest semantic information)
+  Index 0        → token embedding layer (after positional encoding)
+  Index 1 – 24   → transformer layers (low → high level representations)
+  Index -1       → final transformer layer (richest semantic information)
 
-The hidden dimension is approximately 2560.  Check the exact values for the
-model you are using with ``model.config.num_hidden_layers`` and
-``model.config.hidden_size``.
+The hidden dimension is 896.  Verify the exact values for the model you are
+using with ``model.config.num_hidden_layers`` and ``model.config.hidden_size``.
 
 Because this is a **causal** (left-to-right) model, the **last real token**
 in the sequence sees all preceding tokens and thus captures the most complete

@@ -222,27 +222,29 @@ if __name__ == "__main__":
 
     print("[Model] Extracting hidden states for all splits ...")
     t0 = time.time()
-    all_hidden, all_masks = extract_hidden_states(
-        model, tokenizer, all_texts, device=device, batch_size=args.batch_size
+    all_hidden, _ = extract_hidden_states(
+        model,
+        tokenizer,
+        all_texts,
+        device=device,
+        batch_size=args.batch_size,
+        aggregate_fn=aggregate,
     )
     extract_time = time.time() - t0
     print(f"[Model] Extraction done in {extract_time:.1f} s")
 
     # Split back into train / val / test
     train_hidden = all_hidden[:n_train]
-    train_masks = all_masks[:n_train]
     val_hidden = all_hidden[n_train : n_train + n_val]
-    val_masks = all_masks[n_train : n_train + n_val]
     test_hidden = all_hidden[n_train + n_val :]
-    test_masks = all_masks[n_train + n_val :]
 
     # ------------------------------------------------------------------
-    # Feature matrix construction via student aggregation
+    # Feature matrix construction — aggregation was already applied
     # ------------------------------------------------------------------
-    print("\n[Features] Applying aggregation ...")
-    X_train = build_feature_matrix(train_hidden, train_masks)
-    X_val = build_feature_matrix(val_hidden, val_masks)
-    X_test = build_feature_matrix(test_hidden, test_masks)
+    print("\n[Features] Building feature matrices ...")
+    X_train = np.vstack([h.numpy() for h in train_hidden])
+    X_val = np.vstack([h.numpy() for h in val_hidden])
+    X_test = np.vstack([h.numpy() for h in test_hidden])
 
     y_train = np.array(train_data["labels"])
     y_val = np.array(val_data["labels"])

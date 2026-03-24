@@ -29,7 +29,8 @@ import os
 from typing import Union
 
 import pandas as pd
-from sklearn.model_selection import train_test_split
+
+from splitting import split_data
 
 _DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 _DEFAULT_CSV = "dataset.csv"
@@ -348,23 +349,12 @@ def load_data(
 
     df = load_dataset(file_path, random_state=random_state)
 
-    # First split: separate test set
-    train_val_df, test_df = train_test_split(
+    # Delegate splitting to the student-implementable splitting module.
+    train_df, val_df, test_df = split_data(
         df,
         test_size=test_size,
+        val_size=val_size,
         random_state=random_state,
-        stratify=df["hallucination"] if df["hallucination"].nunique() > 1 else None,
-    )
-
-    # Second split: separate validation from training
-    relative_val = val_size / (1.0 - test_size)
-    train_df, val_df = train_test_split(
-        train_val_df,
-        test_size=relative_val,
-        random_state=random_state,
-        stratify=train_val_df["hallucination"]
-        if train_val_df["hallucination"].nunique() > 1
-        else None,
     )
 
     # Shadow gold_response in the test split

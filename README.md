@@ -54,7 +54,8 @@ created automatically if the file is absent.
 | File | What to implement |
 |------|-------------------|
 | `aggregation.py` | Layer selection and token-pooling strategy |
-| `probe.py` | Probe classifier (skeleton: logistic regression) |
+| `probe.py` | Probe classifier (skeleton: MLP via `torch.nn.Module`) |
+| `splitting.py` | Train / validation / test split strategy |
 
 **Do not edit** `validate.py`, `model.py`, or `dataset.py` — these are fixed
 infrastructure and will be replaced with the original versions during grading.
@@ -90,13 +91,27 @@ feature vector — the natural choice for decoder-only models.  Useful alternati
 Implement a binary classifier (`fit`, `predict`, `predict_proba`) that takes
 the aggregated feature vectors and outputs hallucination predictions.
 
-The skeleton wraps scikit-learn's `LogisticRegression` in a normalisation
-pipeline.  Suggestions for improvement:
+The class now extends ``torch.nn.Module``, making it easy to define custom
+neural-network architectures in ``_build_network`` and experiment with
+different training loops in ``fit``.  The skeleton uses a one-hidden-layer MLP
+with Adam optimisation.  Suggestions for improvement:
 
-* `MLPClassifier(hidden_layer_sizes=(256, 128))` — learn non-linear features
-* `SVC(kernel="rbf", probability=True)` — kernel trick
-* Stronger regularisation (`C=0.01`) — prevents overfitting on small datasets
-* `class_weight="balanced"` — handles class imbalance automatically
+* Deeper MLP: add more hidden layers or increase hidden dimension
+* Batch normalisation or dropout for regularisation
+* Different optimisers (`SGD` with momentum, `AdamW` with weight decay)
+* Early stopping based on a hold-out validation loss
+
+### `splitting.py` — Data splitting strategy
+
+Implement the ``split_data`` function to control how the dataset is divided
+into train, validation, and test subsets.
+
+The skeleton performs two stratified random splits (preserving the class
+ratio).  Suggestions for improvement:
+
+* Stratified k-fold cross-validation
+* Group-aware splits (keep rows with the same question in the same fold)
+* Time-ordered splits using the ``id`` column as a temporal index
 
 ---
 

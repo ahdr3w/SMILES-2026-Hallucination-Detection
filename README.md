@@ -198,15 +198,19 @@ provided as starting points (random split, stratified k-fold, group-aware).
 
 ## Evaluation
 
-For each fold `evaluate.py` reports three checkpoints:
+For each fold `evaluate.py` reports four checkpoints:
 
 | # | Checkpoint | Metrics |
 |---|-----------|---------|
 | 1 | Majority-class baseline | Accuracy, F1 |
-| 2 | `HallucinationProbe` on **validation** split | Accuracy, F1, AUROC |
-| 3 | `HallucinationProbe` on **test** split | Accuracy, F1, **AUROC** ★ |
+| 2 | `HallucinationProbe` on **training** split | Accuracy, F1, AUROC |
+| 3 | `HallucinationProbe` on **validation** split | Accuracy, F1, AUROC |
+| 4 | `HallucinationProbe` on **test** split | Accuracy, F1, **AUROC** ★ |
 
 ★ **AUROC on the test split is the primary competition metric.**
+
+Comparing checkpoint 2 (train) against checkpoints 3–4 (val/test) reveals
+overfitting: a large gap means the probe has memorised the training data.
 
 Results are averaged across folds (if using k-fold) and saved to
 `results.json`.

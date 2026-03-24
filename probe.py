@@ -179,9 +179,6 @@ class HallucinationProbe(nn.Module):
         Returns:
             ``self`` (for method chaining).
         """
-        # ------------------------------------------------------------------
-        # STUDENT: Change the optimisation target or candidate set if needed.
-        # ------------------------------------------------------------------
         probs = self.predict_proba(X_val)[:, 1]
 
         # Use the unique predicted probabilities as candidate thresholds,
@@ -198,7 +195,6 @@ class HallucinationProbe(nn.Module):
                 best_threshold = float(t)
 
         self._threshold = best_threshold
-        # ------------------------------------------------------------------
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:

@@ -10,15 +10,15 @@ Runs three evaluation checkpoints and saves results to a JSON file:
 Usage
 -----
     python validate.py \\
-        --data_dir  ./data \\
+        --data_file ./data/dataset.csv \\
         --output    results.json \\
         --device    cpu
 
 Compute budget note:
-This task has no explicit compute budget.  Extracting hidden states from
-DistilBERT takes roughly 30–60 seconds on CPU and < 10 seconds on a free
-Colab GPU.  Feature extraction is performed once and the result is reused
-for all probes.
+Gemma-3-4b-it (4 B parameters, bfloat16) fits in the 15 GB VRAM of a free
+Colab T4 GPU.  A full extraction pass over a few hundred samples takes
+roughly 2–5 minutes on CPU and under 1 minute on GPU.  Use a small
+``--batch_size`` (1–4) on GPU to avoid out-of-memory errors.
 """
 
 from __future__ import annotations
@@ -133,10 +133,19 @@ def parse_args() -> argparse.Namespace:
         description="Evaluate hallucination detection probes."
     )
     parser.add_argument(
+        "--data_file",
+        type=str,
+        default=None,
+        help=(
+            "Path to the dataset CSV file.  When omitted, ``data_dir/dataset.csv``"
+            " is used (created automatically with a fallback dataset if absent)."
+        ),
+    )
+    parser.add_argument(
         "--data_dir",
         type=str,
         default="./data",
-        help="Directory for the dataset JSONL file (auto-created if absent).",
+        help="Directory containing ``dataset.csv`` (used when ``--data_file`` is omitted).",
     )
     parser.add_argument(
         "--output",
@@ -156,8 +165,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=32,
-        help="Batch size for hidden-state extraction.",
+        default=4,
+        help=(
+            "Batch size for hidden-state extraction.  Use 1–4 on GPU to stay "
+            "within VRAM limits for Gemma-3-4b-it."
+        ),
     )
     return parser.parse_args()
 
@@ -186,8 +198,11 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------
     # Data loading
     # ------------------------------------------------------------------
-    print(f"\n[Data] Loading dataset from '{args.data_dir}' ...")
-    train_data, val_data, test_data = load_data(data_dir=args.data_dir)
+    print(f"\n[Data] Loading dataset ...")
+    train_data, val_data, test_data = load_data(
+        file_path=args.data_file,
+        data_dir=args.data_dir,
+    )
 
     n_train = len(train_data["texts"])
     n_val = len(val_data["texts"])

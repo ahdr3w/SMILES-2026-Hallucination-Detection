@@ -8,19 +8,27 @@ The function receives the hidden states from *all* transformer layers for a
 single sample, giving you full control over which layer to inspect and how to
 combine the token representations.
 
-DistilBERT layer index reference
----------------------------------
-  Index 0 → embedding layer       (subword embeddings + positional encoding)
-  Index 1 → transformer layer 1   (low-level syntax)
-  Index 2 → transformer layer 2
-  Index 3 → transformer layer 3   (syntactic structure)
-  Index 4 → transformer layer 4
-  Index 5 → transformer layer 5
-  Index 6 → transformer layer 6   (high-level semantics)
+Gemma-3-4b-it layer index reference
+--------------------------------------
+Gemma-3-4b-it is a **decoder-only** (causal) language model.  It contains
+approximately 34 transformer layers plus an embedding layer:
 
-The default skeleton uses the final transformer layer (index 6) with mean
-pooling over non-padding tokens — a strong baseline that you are expected to
-improve upon.
+  Index 0           → token embedding layer (after positional encoding)
+  Index 1 – 34      → transformer layers (low → high level representations)
+  Index -1 / [-1]   → final transformer layer (richest semantic information)
+
+The hidden dimension is approximately 2560.  Check the exact values for the
+model you are using with ``model.config.num_hidden_layers`` and
+``model.config.hidden_size``.
+
+Because this is a **causal** (left-to-right) model, the **last real token**
+in the sequence sees all preceding tokens and thus captures the most complete
+contextual representation.  This is the natural pooling strategy and is used
+as the default below.
+
+Compare this with encoder models (e.g. BERT), where the ``[CLS]`` token at
+position 0 aggregates the full sequence.  In causal models the equivalent is
+the last real token.
 """
 
 from __future__ import annotations
@@ -36,9 +44,9 @@ def aggregate(
 
     Args:
         hidden_states:  Tensor of shape ``(n_layers, seq_len, hidden_dim)``
-                        containing the hidden states from all 7 layers
-                        (embedding + 6 transformer layers) for one sample.
-                        Layer index 0 is the embedding; index 6 is the
+                        containing the hidden states from all layers
+                        (embedding + transformer layers) for one sample.
+                        Layer index 0 is the token embedding; index -1 is the
                         final transformer layer.
         attention_mask: 1-D tensor of shape ``(seq_len,)`` with values 1 for
                         real tokens and 0 for padding.
@@ -48,37 +56,37 @@ def aggregate(
         ``(k * hidden_dim,)`` if you concatenate multiple layers.
 
     Student task:
-        Replace or extend the skeleton below. Strategies to explore:
+        Replace or extend the skeleton below.  Strategies to explore:
 
         **Layer selection:**
-          - ``hidden_states[-1]``        → last transformer layer (default)
-          - ``hidden_states[3]``         → middle layer
-          - ``hidden_states[1:4].mean(0)`` → average of early layers
+          - ``hidden_states[-1]``          → last transformer layer (default)
+          - ``hidden_states[-2]``          → penultimate layer
+          - ``hidden_states[len//2]``      → middle layer
+          - Average of last k layers: ``hidden_states[-k:].mean(0)``
 
-        **Token pooling:**
-          - Mean over non-padding tokens (default)
-          - ``hidden_states[-1, 0]``     → [CLS] token representation
-          - ``hidden_states[-1, -1]``    → last real token
-          - Max pooling across positions
-          - Attention-weighted pooling using the mask as soft weights
+        **Token pooling (for causal LMs):**
+          - Last real token (default) — sees all prior context
+          - Mean pooling over all real tokens (non-padding)
+          - Max pooling: ``(layer * mask_expanded).max(dim=0).values``
+          - Weighted average: weight earlier tokens by position
 
         **Multi-layer fusion:**
-          - Concatenate several layers' pooled vectors
+          - Concatenate several layers' last-token vectors
           - Weighted sum of layers (learn the weights in the probe)
     """
     # ------------------------------------------------------------------
     # STUDENT: Replace or extend the aggregation below.
     # ------------------------------------------------------------------
 
-    # Default: mean pooling over non-padding tokens in the last layer.
+    # Default: hidden state of the last real token in the final layer.
+    # For a causal LM this position attends to the full input sequence.
     layer = hidden_states[-1]          # (seq_len, hidden_dim)
-    mask = attention_mask.float()      # (seq_len,)  — 1 = real token
 
-    # Expand mask for broadcasting and compute masked mean.
-    mask_expanded = mask.unsqueeze(-1)                         # (seq_len, 1)
-    sum_hidden = (layer * mask_expanded).sum(dim=0)            # (hidden_dim,)
-    count = mask_expanded.sum(dim=0).clamp(min=1e-9)           # (1,)
-    feature = sum_hidden / count                               # (hidden_dim,)
+    # Find the index of the last real (non-padding) token.
+    real_positions = attention_mask.nonzero(as_tuple=False)  # (n_real, 1)
+    last_pos = int(real_positions[-1].item())                 # scalar index
+
+    feature = layer[last_pos]          # (hidden_dim,)
 
     return feature
     # ------------------------------------------------------------------

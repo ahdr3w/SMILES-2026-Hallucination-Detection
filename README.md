@@ -10,13 +10,15 @@ Large language models often produce fluent but factually incorrect answers —
 commonly called **hallucinations**. Detecting such outputs is a key problem in
 building reliable AI systems.
 
-In this challenge you will build a lightweight hallucination detector for a
-small LLM using **representation-based methods**: extract hidden states from a
-pre-trained DistilBERT model, then train a linear probe (or a small classifier)
-on top to predict whether a response is truthful or hallucinated.
+In this challenge you will build a lightweight hallucination detector for
+**Gemma-3-4b-it** using **representation-based methods**: extract hidden states
+from the model's transformer layers, then train a linear probe (or a small
+classifier) on top to predict whether a generated response is truthful or
+hallucinated.
 
-This is a self-contained, resource-friendly project. Feature extraction runs in
-under a minute on a free Google Colab CPU instance.
+This is a self-contained, resource-friendly project.  The model fits in the
+15 GB VRAM of a free Google Colab T4 GPU (loaded in bfloat16).  Feature
+extraction over a few hundred samples takes 1–5 minutes on GPU.
 
 ---
 
@@ -32,17 +34,18 @@ pip install -r requirements.txt
 
 ```bash
 python validate.py \
-    --data_dir ./data \
-    --output   results.json \
-    --device   cpu
+    --data_file ./data/dataset.csv \
+    --output    results.json \
+    --device    cuda \
+    --batch_size 4
 ```
 
 The `--device` argument is optional (`cpu`, `cuda`, or `mps`); it is
-auto-detected when omitted.
+auto-detected when omitted.  The `--data_file` argument is also optional; when
+omitted, `./data/dataset.csv` is used and a built-in fallback dataset is
+created automatically if the file is absent.
 
-The dataset is created automatically in `./data` on the first run (it either
-downloads **TruthfulQA** from HuggingFace Datasets or falls back to a built-in
-synthetic dataset if no internet access is available).
+**Recommended**: use a GPU (`--device cuda`) with `--batch_size 4` for Gemma-3-4b-it.
 
 ---
 
@@ -64,21 +67,23 @@ infrastructure and will be replaced with the original versions during grading.
 
 Convert a per-token hidden-state tensor into a single feature vector.
 
-DistilBERT produces 7 sets of hidden states (embedding layer + 6 transformer
-layers).  You control:
+Gemma-3-4b-it is a **decoder-only** model with approximately 34 transformer
+layers (plus an embedding layer).  Because it processes tokens left-to-right,
+the **last real token** is the natural aggregation target — it attends to the
+entire input sequence.  You control:
 
 * **Which layer(s) to use** — early layers capture syntax; later layers
   capture semantics.
-* **How to pool across tokens** — mean, max, `[CLS]` token, last real token,
-  attention-weighted, or a custom combination.
+* **How to pool across tokens** — last real token (default for causal LMs),
+  mean pooling, max pooling, or a custom combination.
 
-The skeleton uses mean pooling over non-padding tokens in the final layer.
-Useful alternatives:
+The skeleton uses the **last real token** of the final transformer layer as the
+feature vector — the natural choice for decoder-only models.  Useful alternatives:
 
-* `[CLS]` token representation (index 0) — designed to capture global meaning
-* Max pooling — highlights the most activated features
-* Concatenate multiple layers — gives the probe information from several depths
-* Attention-weighted pooling — weight tokens by their contribution
+* Mean pooling over all real tokens — smoother, sometimes more robust
+* Middle-layer last token — intermediate abstraction level
+* Concatenate multiple layers' last-token vectors
+* Last token of a specific layer index (e.g., `hidden_states[-4]`)
 
 ### `probe.py` — Probe classifier
 
@@ -113,6 +118,32 @@ pipeline.  Suggestions for improvement:
 
 ---
 
+## Dataset Format
+
+The dataset is a CSV file with the following columns:
+
+| Column | Description |
+|--------|-------------|
+| `id` | Unique sample identifier |
+| `instruction` | Optional system instruction |
+| `question` | The question posed to the model |
+| `prompt_template` | Template used to construct `prompt` |
+| `gold_response` | The correct reference answer (**shadowed to `null` in the test split**) |
+| `generated_response` | The model's generated answer (what we classify) |
+| `response_history` | Dialogue history (if any) |
+| `context` | Supporting context passage (if any) |
+| `prompt` | The full input prompt given to the model |
+| `hallucination` | Ground-truth label: 0 = truthful, 1 = hallucinated |
+
+The text fed to the LLM for hidden-state extraction is
+`prompt + "\n" + generated_response`.
+
+> **Note:** `gold_response` is `null` in the **test split** to prevent students
+> from building a trivial detector by comparing `generated_response` to the
+> gold answer.
+
+---
+
 ## Output JSON
 
 Results are saved to the file specified by `--output`.  Example:
@@ -130,8 +161,8 @@ Results are saved to the file specified by `--output`.  Example:
   "n_train": 140,
   "n_val": 30,
   "n_test": 30,
-  "feature_dim": 768,
-  "extract_time_s": 45.2
+  "feature_dim": 2560,
+  "extract_time_s": 120.5
 }
 ```
 

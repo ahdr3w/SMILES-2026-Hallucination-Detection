@@ -3,8 +3,9 @@ aggregation.py — Token aggregation strategy and feature extraction
                (student-implemented).
 
 This module is responsible for converting the raw per-token, per-layer hidden
-states produced by ``model.extract_hidden_states`` into a flat feature vector
-that is fed to the probe classifier (``probe.HallucinationProbe``).
+states produced by the mini-batch extraction loop in ``solution.ipynb``
+(Section 4) into a flat feature vector that is fed to the probe classifier
+(``probe.HallucinationProbe``).
 
 The pipeline has **two stages** that you can customise independently:
 
@@ -179,11 +180,10 @@ def aggregation_and_feature_extraction(
 
     Args:
         hidden_states:  Tensor of shape ``(n_layers, seq_len, hidden_dim)``
-                        for a **single sample**, as returned by
-                        ``model.extract_hidden_states``.
+                        for a **single sample**, produced inside the
+                        mini-batch extraction loop in ``solution.ipynb``.
         attention_mask: 1-D tensor of shape ``(seq_len,)`` with 1 for real
-                        tokens and 0 for padding, also from
-                        ``model.extract_hidden_states``.
+                        tokens and 0 for padding, from the same loop.
         use_geometric:  Whether to append geometric features produced by
                         ``extract_geometric_features``.  Controlled by the
                         ``USE_GEOMETRIC`` flag in ``solution.ipynb``.

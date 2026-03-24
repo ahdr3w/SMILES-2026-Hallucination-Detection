@@ -1,7 +1,7 @@
 """
 model.py — LLM loader and hidden state extractor (fixed infrastructure, do not edit).
 
-Loads ``google/gemma-3-4b-it`` and provides utilities to extract hidden states
+Loads ``Qwen/Qwen3.5-0.8B`` and provides utilities to extract hidden states
 from all transformer layers for a list of input texts.
 
 Gemma-3-4b-it is a **decoder-only** (causal) language model.  Its internal
@@ -27,7 +27,7 @@ import torch
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-_DEFAULT_MODEL = "google/gemma-3-4b-it"
+_DEFAULT_MODEL = "Qwen/Qwen3.5-0.8B"
 _MAX_LENGTH = 512
 
 
@@ -44,7 +44,7 @@ def get_model_and_tokenizer(
 
     Args:
         model_name: HuggingFace model identifier.  Defaults to
-                    ``"google/gemma-3-4b-it"``.
+                    ``"Qwen/Qwen3.5-0.8B"``.
 
     Returns:
         A ``(model, tokenizer)`` tuple.  The model is in eval mode.

@@ -1,25 +1,11 @@
 """
 probe.py — Hallucination probe classifier (student-implemented).
 
-Students: Implement ``HallucinationProbe`` to classify feature vectors as
-truthful (0) or hallucinated (1).  The skeleton provides a small MLP trained
-with PyTorch — you are expected to extend it.
-
-``solution.ipynb`` calls the probe via ``evaluate.run_evaluation`` as follows::
-
-    probe = HallucinationProbe()
-    probe.fit(X_train, y_train)
-    probe.fit_hyperparameters(X_val, y_val)   # tunes decision threshold
-    y_pred = probe.predict(X_test)
-    y_prob = probe.predict_proba(X_test)      # for AUROC
-
-All four methods must be implemented and their signatures must not change.
-``X`` is a 2-D NumPy array of shape ``(n_samples, feature_dim)``; ``y`` is
-a 1-D NumPy array of ints (0 or 1).
-
-``HallucinationProbe`` extends ``torch.nn.Module``, so you can define the
-network architecture in ``__init__`` / ``_build_network``, override
-``forward``, and experiment with any PyTorch-based training loop in ``fit``.
+Implements ``HallucinationProbe``, a binary MLP that classifies feature
+vectors as truthful (0) or hallucinated (1).  Called from ``solution.ipynb``
+via ``evaluate.run_evaluation``.  All four public methods (``fit``,
+``fit_hyperparameters``, ``predict``, ``predict_proba``) must be implemented
+and their signatures must not change.
 """
 
 from __future__ import annotations
@@ -34,43 +20,16 @@ from sklearn.preprocessing import StandardScaler
 class HallucinationProbe(nn.Module):
     """Binary classifier that detects hallucinations from hidden-state features.
 
-    Inherits from ``torch.nn.Module`` so students can override ``forward`` and
-    use standard PyTorch patterns (custom layers, optimisers, schedulers, etc.).
-
-    The skeleton implements a single hidden-layer MLP with a ``StandardScaler``
-    pre-processing step.  The network is built lazily in ``fit()`` once the
-    feature dimension is known.
-
-    Student task:
-        Replace or extend the skeleton below.  Ideas to explore:
-
-        **Architecture:**
-          - Deeper MLP: ``nn.Linear → ReLU → nn.Linear → ReLU → nn.Linear``
-          - Batch normalisation: ``nn.BatchNorm1d``
-          - Dropout regularisation: ``nn.Dropout(p=0.3)``
-
-        **Optimisation:**
-          - Different optimisers: ``torch.optim.SGD``, ``torch.optim.AdamW``
-          - Learning-rate schedulers: ``torch.optim.lr_scheduler.StepLR``
-          - More / fewer training epochs; early stopping on a held-out set
-
-        **Class imbalance:**
-          - Adjust ``pos_weight`` in ``nn.BCEWithLogitsLoss``
-          - Oversample the minority class before fitting
-
-        **Threshold tuning:**
-          - ``fit_hyperparameters`` already finds the F1-optimal threshold on
-            the validation split; you can change the optimisation target
-            (e.g. maximise accuracy, or use a recall-weighted F-beta score)
+    Extends ``torch.nn.Module``; the default architecture is a single
+    hidden-layer MLP with ``StandardScaler`` pre-processing.  The network is
+    built lazily in ``fit()`` once the feature dimension is known.
     """
 
     def __init__(self) -> None:
         super().__init__()
-        # Network is built lazily in fit() once input_dim is known.
-        self._net: nn.Sequential | None = None
+        self._net: nn.Sequential | None = None  # built lazily in fit()
         self._scaler = StandardScaler()
-        # Decision threshold used by predict(); tuned by fit_hyperparameters().
-        self._threshold: float = 0.5
+        self._threshold: float = 0.5  # tuned by fit_hyperparameters()
 
     # ------------------------------------------------------------------
     # STUDENT: Replace or extend the network definition below.
@@ -79,11 +38,9 @@ class HallucinationProbe(nn.Module):
         """Instantiate the network layers.
 
         Called once at the start of ``fit()`` when ``input_dim`` is known.
-        Override this method (or the constructor) to change the architecture.
 
         Args:
-            input_dim: Dimensionality of the feature vectors produced by
-                       ``aggregation.aggregate``.
+            input_dim: Feature vector dimensionality.
         """
         self._net = nn.Sequential(
             nn.Linear(input_dim, 256),
@@ -111,8 +68,8 @@ class HallucinationProbe(nn.Module):
     def fit(self, X: np.ndarray, y: np.ndarray) -> "HallucinationProbe":
         """Train the probe on labelled feature vectors.
 
-        Scales the features with ``StandardScaler``, builds the network (if not
-        already built), and optimises with Adam + ``BCEWithLogitsLoss``.
+        Scales features with ``StandardScaler``, builds the network if needed,
+        and optimises with Adam + ``BCEWithLogitsLoss``.
 
         Args:
             X: Feature matrix of shape ``(n_samples, feature_dim)``.
@@ -129,7 +86,7 @@ class HallucinationProbe(nn.Module):
         X_t = torch.from_numpy(X_scaled).float()
         y_t = torch.from_numpy(y.astype(np.float32))
 
-        # Handle class imbalance: weight positive examples by neg/pos ratio.
+        # Weight positive examples by neg/pos ratio to handle class imbalance.
         n_pos = int(y.sum())
         n_neg = len(y) - n_pos
         pos_weight = torch.tensor([n_neg / max(n_pos, 1)], dtype=torch.float32)
@@ -155,20 +112,11 @@ class HallucinationProbe(nn.Module):
     def fit_hyperparameters(
         self, X_val: np.ndarray, y_val: np.ndarray
     ) -> "HallucinationProbe":
-        """Tune the decision threshold on a labelled validation set.
+        """Tune the decision threshold on a validation set to maximise F1.
 
-        Scans candidate threshold values (the unique predicted probabilities
-        from *X_val* plus a small grid) and picks the one that maximises the
-        F1-score on the validation labels.  The chosen threshold is stored in
-        ``self._threshold`` and used by subsequent ``predict`` calls.
-
-        Call this method **after** ``fit`` and **before** ``predict``:
-
-        .. code-block:: python
-
-            probe.fit(X_train, y_train)
-            probe.fit_hyperparameters(X_val, y_val)
-            y_pred = probe.predict(X_test)
+        The chosen threshold is stored in ``self._threshold`` and used by
+        subsequent ``predict`` calls.  Call this after ``fit`` and before
+        ``predict``.
 
         Args:
             X_val: Validation feature matrix of shape
@@ -181,8 +129,7 @@ class HallucinationProbe(nn.Module):
         """
         probs = self.predict_proba(X_val)[:, 1]
 
-        # Use the unique predicted probabilities as candidate thresholds,
-        # supplemented with a coarse [0, 1] grid so that edge cases are covered.
+        # Candidate thresholds: unique predicted probabilities plus a coarse grid.
         candidates = np.unique(np.concatenate([probs, np.linspace(0.0, 1.0, 101)]))
 
         best_threshold = 0.5
@@ -200,8 +147,8 @@ class HallucinationProbe(nn.Module):
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predict binary labels for feature vectors.
 
-        Uses the decision threshold stored in ``self._threshold`` (default
-        ``0.5``; updated by ``fit_hyperparameters``).
+        Uses the decision threshold in ``self._threshold`` (default ``0.5``;
+        updated by ``fit_hyperparameters``).
 
         Args:
             X: Feature matrix of shape ``(n_samples, feature_dim)``.

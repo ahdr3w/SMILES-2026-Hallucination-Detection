@@ -1,11 +1,9 @@
 """
 splitting.py — Train / validation / test split utilities (student-implementable).
 
-Students: Modify or replace ``split_data`` to explore different splitting
-strategies.  The function receives the label array ``y`` and, optionally, the
-full DataFrame ``df`` (useful for group-aware splits).  It must return a list
-of ``(idx_train, idx_val, idx_test)`` tuples of integer index arrays into
-``X`` and ``y``.
+``split_data`` receives the label array ``y`` and, optionally, the full
+DataFrame ``df`` (for group-aware splits).  It must return a list of
+``(idx_train, idx_val, idx_test)`` tuples of integer index arrays.
 
 Contract
 --------
@@ -14,16 +12,6 @@ Contract
 * ``idx_val`` may be ``None`` if no separate validation fold is needed.
 * All indices must be non-overlapping; together they must cover every sample.
 * Return a **list** — one element for a single split, K elements for k-fold.
-
-Ideas to explore
-----------------
-* **Stratified k-fold** — rotate the test set across K folds and average metrics.
-* **Group-aware splits** — keep all rows that share the same question in the
-  same fold so the probe cannot memorise question wording.
-* **Time-ordered splits** — hold out the largest index values to simulate
-  deployment conditions.
-* **Balanced splits** — oversample / undersample before fitting to equalise the
-  class ratio.
 """
 
 from __future__ import annotations
@@ -42,23 +30,21 @@ def split_data(
 ) -> list[tuple[np.ndarray, np.ndarray | None, np.ndarray]]:
     """Split dataset indices into train, validation, and test subsets.
 
-    The default strategy performs a single stratified random split so that the
-    class ratio is preserved in every subset.
+    The default strategy performs a single stratified random split preserving
+    the class ratio in each subset.
 
     Args:
         y:            Label array of shape ``(N,)`` with values in ``{0, 1}``.
                       Used for stratification.
         df:           Optional full DataFrame (same row order as ``y``).
-                      Pass it when your strategy needs per-sample metadata
-                      (e.g. a ``question`` column for group-aware splits).
+                      Required for group-aware splits.
         test_size:    Fraction of samples reserved for the held-out test set.
         val_size:     Fraction of samples reserved for validation.
         random_state: Random seed for reproducible splits.
 
     Returns:
-        A list of ``(idx_train, idx_val, idx_test)`` tuples.  Each element is
-        a 1-D NumPy array of integer indices into ``y`` (and the feature matrix
-        ``X`` built from the same dataset).  ``idx_val`` may be ``None``.
+        A list of ``(idx_train, idx_val, idx_test)`` tuples of integer index
+        arrays.  ``idx_val`` may be ``None``.
 
     Student task:
         Replace or extend the skeleton below.  The only contract is that the

@@ -6,16 +6,14 @@ print a formatted summary table, save results to a JSON file, and generate
 predictions on an unlabelled test set.
 
 For each ``(idx_train, idx_val, idx_test)`` split produced by ``splitting.py``
-the pipeline runs three checkpoints:
+the pipeline evaluates four checkpoints:
 
   1. Majority-class baseline  — trivial classifier; sets the accuracy floor.
-  2. HallucinationProbe (train)— student probe evaluated on the training set.
-  3. HallucinationProbe (val) — student probe evaluated on the validation set.
-  4. HallucinationProbe (test)— student probe evaluated on the held-out test set.
+  2. HallucinationProbe (train) — probe metrics on the training split.
+  3. HallucinationProbe (val)  — probe metrics on the validation split.
+  4. HallucinationProbe (test) — probe metrics on the held-out test split.
 
-Metrics reported: Accuracy, F1-score, AUROC (primary ranking metric).
-Training metrics expose overfitting: a large gap between train and val/test
-scores indicates that the model has memorised the training data.
+Metrics reported: Accuracy, F1, AUROC (primary ranking metric).
 """
 
 from __future__ import annotations
@@ -59,9 +57,8 @@ def evaluate_fold(
 ) -> dict:
     """Train *probe* and return a metrics dict for the train, val, and test splits.
 
-    If a validation set is available and *probe* exposes a
-    ``fit_hyperparameters`` method, the decision threshold is tuned on the
-    validation split after training and before computing predictions.
+    If *idx_val* is provided and *probe* exposes ``fit_hyperparameters``, the
+    decision threshold is tuned on the validation split before prediction.
 
     Args:
         probe:      A freshly instantiated ``HallucinationProbe``.
@@ -74,14 +71,11 @@ def evaluate_fold(
     Returns:
         A dict with keys ``"{split}_accuracy"``, ``"{split}_f1"``, and
         ``"{split}_auroc"`` for each available split (``"train"``,
-        ``"val"`` and/or ``"test"``).  Training metrics are always present;
-        they reflect in-sample performance and are useful for diagnosing
-        overfitting when compared against val/test scores.
+        ``"val"``, ``"test"``).
     """
     probe.fit(X[idx_train], y[idx_train])
 
-    # If the probe supports threshold tuning and a validation set is available,
-    # tune the decision threshold on the validation split *before* evaluating.
+    # If the probe supports threshold tuning, tune on the validation split.
     if idx_val is not None and hasattr(probe, "fit_hyperparameters"):
         probe.fit_hyperparameters(X[idx_val], y[idx_val])
 
@@ -121,29 +115,22 @@ def run_evaluation(
 ) -> list[dict]:
     """Run the full evaluation loop over all splits and return per-fold results.
 
-    For each split the function:
-
-    1. Trains a majority-class baseline and records its Accuracy and F1.
-    2. Instantiates ``ProbeClass()``, trains it on the training split, and
-       records Accuracy, F1, and AUROC for train, val, and test splits.
-       Training metrics are printed alongside val/test metrics to make
-       overfitting immediately visible.
-
-    Progress is printed to stdout.
+    For each split, trains a majority-class baseline and a ``ProbeClass``
+    instance, then records Accuracy, F1, and AUROC for train, val, and test
+    splits.  Progress is printed to stdout.
 
     Args:
         splits:     List of ``(idx_train, idx_val, idx_test)`` tuples produced
                     by ``splitting.split_data``.  ``idx_val`` may be ``None``.
         X:          Feature matrix of shape ``(N, feature_dim)``.
         y:          Label array of shape ``(N,)`` with values in ``{0, 1}``.
-        ProbeClass: Class (not instance) to use for the probe classifier.
+        ProbeClass: Class (not instance) to instantiate for each fold.
                     Must expose ``fit``, ``predict``, and ``predict_proba``.
-                    Typically ``HallucinationProbe`` from ``probe.py``.
 
     Returns:
         List of result dicts, one per fold, each containing ``fold``,
         ``n_train``, ``n_val``, ``n_test``, ``baseline_*``, and probe
-        metrics for all available splits (train, val, test).
+        metrics for all available splits.
     """
     fold_results: list[dict] = []
 
@@ -280,29 +267,18 @@ def save_predictions(
     ids: list,
     output_file: str = "predictions.csv",
 ) -> None:
-    """Run *probe* on unlabelled competition test features and save predicted labels to CSV.
+    """Run *probe* on unlabelled test features and save predicted labels to CSV.
 
-    The probe must already be fitted (via ``fit``) before calling this
-    function.  Fit the probe on the **training and validation data only**
-    (i.e. excluding the evaluation test split from ``splitting.split_data``)
-    so that the test-set metrics from ``run_evaluation`` remain an honest,
-    unbiased performance estimate.
+    The probe must be fitted before calling this function.  *X_test* refers to
+    an unlabelled competition test set (e.g. ``data/test.csv``), separate from
+    the evaluation test split used inside ``run_evaluation``.
 
-    Note: *X_test* here refers to an **unlabelled competition test set**
-    (e.g. ``data/test.csv``), which is entirely separate from the labelled
-    evaluation test split used inside ``run_evaluation``.
-
-    The output CSV contains two columns:
-
-    * ``id``    — sample identifier, taken from *ids*.
-    * ``label`` — predicted binary label (0 = truthful, 1 = hallucinated).
+    Output CSV columns: ``id`` and ``label`` (0 = truthful, 1 = hallucinated).
 
     Args:
-        probe:        A fitted ``HallucinationProbe`` (or any object that
-                      exposes a ``predict(X) -> np.ndarray`` method).
-        X_test:       Feature matrix for the **unlabelled competition** test
-                      set, shape ``(n_test, feature_dim)``.
-        ids:          Sequence of sample identifiers aligned with ``X_test``.
+        probe:        A fitted probe exposing ``predict(X) -> np.ndarray``.
+        X_test:       Feature matrix of shape ``(n_test, feature_dim)``.
+        ids:          Sample identifiers aligned with ``X_test``.
         output_file:  Path to write the predictions CSV.
     """
     import pandas as pd

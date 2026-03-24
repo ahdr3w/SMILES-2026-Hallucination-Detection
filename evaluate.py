@@ -2,7 +2,8 @@
 evaluate.py — Evaluation utilities (fixed infrastructure, do not edit).
 
 Provides helpers used by ``solution.ipynb`` to run the full evaluation loop,
-print a formatted summary table, and save results to a JSON file.
+print a formatted summary table, save results to a JSON file, and generate
+predictions on an unlabelled test set.
 
 For each ``(idx_train, idx_val, idx_test)`` split produced by ``splitting.py``
 the pipeline runs three checkpoints:
@@ -239,6 +240,38 @@ def print_summary(
     print("=" * W)
     print()
     print(f"★  Primary metric — Test AUROC: {_fmt(avg_test_auroc)}")
+
+
+def save_predictions(
+    probe,
+    X_test: np.ndarray,
+    ids: list,
+    output_file: str = "predictions.csv",
+) -> None:
+    """Run *probe* on unlabelled test features and save predicted labels to CSV.
+
+    The probe must already be fitted (via ``fit``) before calling this
+    function.  Typically you would fit on the full labelled dataset first
+    (i.e. all of ``X`` and ``y``) so that no labelled data is wasted.
+
+    The output CSV contains two columns:
+
+    * ``id``    — sample identifier, taken from *ids*.
+    * ``label`` — predicted binary label (0 = truthful, 1 = hallucinated).
+
+    Args:
+        probe:        A fitted ``HallucinationProbe`` (or any object that
+                      exposes a ``predict(X) -> np.ndarray`` method).
+        X_test:       Feature matrix for the unlabelled test set, shape
+                      ``(n_test, feature_dim)``.
+        ids:          Sequence of sample identifiers aligned with ``X_test``.
+        output_file:  Path to write the predictions CSV.
+    """
+    import pandas as pd
+
+    y_pred = probe.predict(X_test)
+    pd.DataFrame({"id": ids, "label": y_pred}).to_csv(output_file, index=False)
+    print(f"Predictions saved to '{output_file}'  ({len(y_pred)} samples)")
 
 
 def save_results(

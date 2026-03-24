@@ -40,6 +40,8 @@ After the setup cell, run the remaining cells from top to bottom:
 3. **Split data** — calls `splitting.split_data(y, df)` from `splitting.py`
 4. **Evaluate** — trains your probe and reports metrics
 5. **Save results** — writes `results.json`
+6. **Predict on test set** — fits the probe on all labelled data, runs it on
+   `data/test.csv`, and writes `predictions.csv`
 
 **Recommended**: use a GPU runtime (`Runtime → Change runtime type → T4 GPU`)
 and set `BATCH_SIZE = 4` in the configuration cell.
@@ -144,8 +146,8 @@ The dataset is a CSV file with (at minimum) the following columns:
 | `response` | The model's generated answer (what we classify) |
 | `label` | Ground-truth binary label: 0 = truthful, 1 = hallucinated |
 
-The text fed to Qwen2.5-0.5B for hidden-state extraction is
-`prompt + "\n" + response`.
+The text fed to Qwen2.5-0.5B for hidden-state extraction is the direct
+concatenation `prompt + response` (no separator).
 
 ---
 
@@ -189,6 +191,28 @@ When using k-fold the `folds` array contains one entry per fold and the
 
 ---
 
+## Competition Test Predictions
+
+`data/test.csv` is the held-out competition file — its `label` column is `null`.
+After running the evaluation cells, Section 8 of the notebook:
+
+1. Loads `data/test.csv` and builds input texts the same way as the training set.
+2. Extracts features with the already-loaded model.
+3. Re-fits the probe on the **full** labelled dataset (to not waste any data).
+4. Saves predicted labels to `predictions.csv`:
+
+```
+id,label
+0,1
+1,0
+2,1
+...
+```
+
+Submit `predictions.csv` alongside your report.
+
+---
+
 ## What You'll Learn
 
 * How internal representations of LLMs encode factual correctness
@@ -210,6 +234,7 @@ When using k-fold the `folds` array contains one entry per fold and the
 ## Deliverables
 
 * Your modified `aggregation.py`, `probe.py`, and `splitting.py`
+* `predictions.csv` — your predicted labels for the competition test set
 * A short report describing your approach, what worked, and key insights
 
 ---

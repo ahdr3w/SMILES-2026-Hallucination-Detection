@@ -56,6 +56,10 @@ def evaluate_fold(
 ) -> dict:
     """Train *probe* and return a metrics dict for the val and test splits.
 
+    If a validation set is available and *probe* exposes a
+    ``fit_hyperparameters`` method, the decision threshold is tuned on the
+    validation split after training and before computing predictions.
+
     Args:
         probe:      A freshly instantiated ``HallucinationProbe``.
         X:          Full feature matrix of shape ``(N, feature_dim)``.
@@ -70,6 +74,11 @@ def evaluate_fold(
         ``"test"``).
     """
     probe.fit(X[idx_train], y[idx_train])
+
+    # If the probe supports threshold tuning and a validation set is available,
+    # tune the decision threshold on the validation split *before* evaluating.
+    if idx_val is not None and hasattr(probe, "fit_hyperparameters"):
+        probe.fit_hyperparameters(X[idx_val], y[idx_val])
 
     results: dict = {}
 

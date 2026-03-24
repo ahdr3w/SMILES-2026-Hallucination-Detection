@@ -9,10 +9,11 @@ with PyTorch — you are expected to extend it.
 
     probe = HallucinationProbe()
     probe.fit(X_train, y_train)
+    probe.fit_hyperparameters(X_val, y_val)   # tunes decision threshold
     y_pred = probe.predict(X_test)
-    y_prob = probe.predict_proba(X_test)   # for AUROC
+    y_prob = probe.predict_proba(X_test)      # for AUROC
 
-All three methods must be implemented and their signatures must not change.
+All four methods must be implemented and their signatures must not change.
 ``X`` is a 2-D NumPy array of shape ``(n_samples, feature_dim)``; ``y`` is
 a 1-D NumPy array of ints (0 or 1).
 
@@ -26,6 +27,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 import torch.nn as nn
+from sklearn.metrics import f1_score
 from sklearn.preprocessing import StandardScaler
 
 
@@ -55,6 +57,11 @@ class HallucinationProbe(nn.Module):
         **Class imbalance:**
           - Adjust ``pos_weight`` in ``nn.BCEWithLogitsLoss``
           - Oversample the minority class before fitting
+
+        **Threshold tuning:**
+          - ``fit_hyperparameters`` already finds the F1-optimal threshold on
+            the validation split; you can change the optimisation target
+            (e.g. maximise accuracy, or use a recall-weighted F-beta score)
     """
 
     def __init__(self) -> None:
@@ -62,6 +69,8 @@ class HallucinationProbe(nn.Module):
         # Network is built lazily in fit() once input_dim is known.
         self._net: nn.Sequential | None = None
         self._scaler = StandardScaler()
+        # Decision threshold used by predict(); tuned by fit_hyperparameters().
+        self._threshold: float = 0.5
 
     # ------------------------------------------------------------------
     # STUDENT: Replace or extend the network definition below.
@@ -143,8 +152,60 @@ class HallucinationProbe(nn.Module):
         self.eval()
         return self
 
+    def fit_hyperparameters(
+        self, X_val: np.ndarray, y_val: np.ndarray
+    ) -> "HallucinationProbe":
+        """Tune the decision threshold on a labelled validation set.
+
+        Scans candidate threshold values (the unique predicted probabilities
+        from *X_val* plus a small grid) and picks the one that maximises the
+        F1-score on the validation labels.  The chosen threshold is stored in
+        ``self._threshold`` and used by subsequent ``predict`` calls.
+
+        Call this method **after** ``fit`` and **before** ``predict``:
+
+        .. code-block:: python
+
+            probe.fit(X_train, y_train)
+            probe.fit_hyperparameters(X_val, y_val)
+            y_pred = probe.predict(X_test)
+
+        Args:
+            X_val: Validation feature matrix of shape
+                   ``(n_val_samples, feature_dim)``.
+            y_val: Integer label vector of shape ``(n_val_samples,)``;
+                   0 = truthful, 1 = hallucinated.
+
+        Returns:
+            ``self`` (for method chaining).
+        """
+        # ------------------------------------------------------------------
+        # STUDENT: Change the optimisation target or candidate set if needed.
+        # ------------------------------------------------------------------
+        probs = self.predict_proba(X_val)[:, 1]
+
+        # Use the unique predicted probabilities as candidate thresholds,
+        # supplemented with a coarse [0, 1] grid so that edge cases are covered.
+        candidates = np.unique(np.concatenate([probs, np.linspace(0.0, 1.0, 101)]))
+
+        best_threshold = 0.5
+        best_f1 = -1.0
+        for t in candidates:
+            y_pred_t = (probs >= t).astype(int)
+            score = f1_score(y_val, y_pred_t, zero_division=0)
+            if score > best_f1:
+                best_f1 = score
+                best_threshold = float(t)
+
+        self._threshold = best_threshold
+        # ------------------------------------------------------------------
+        return self
+
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predict binary labels for feature vectors.
+
+        Uses the decision threshold stored in ``self._threshold`` (default
+        ``0.5``; updated by ``fit_hyperparameters``).
 
         Args:
             X: Feature matrix of shape ``(n_samples, feature_dim)``.
@@ -152,7 +213,7 @@ class HallucinationProbe(nn.Module):
         Returns:
             Integer array of shape ``(n_samples,)`` with values in ``{0, 1}``.
         """
-        return (self.predict_proba(X)[:, 1] >= 0.5).astype(int)
+        return (self.predict_proba(X)[:, 1] >= self._threshold).astype(int)
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
         """Return class probability estimates.

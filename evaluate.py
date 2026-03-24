@@ -9,10 +9,13 @@ For each ``(idx_train, idx_val, idx_test)`` split produced by ``splitting.py``
 the pipeline runs three checkpoints:
 
   1. Majority-class baseline  — trivial classifier; sets the accuracy floor.
-  2. HallucinationProbe (val) — student probe evaluated on the validation set.
-  3. HallucinationProbe (test)— student probe evaluated on the held-out test set.
+  2. HallucinationProbe (train)— student probe evaluated on the training set.
+  3. HallucinationProbe (val) — student probe evaluated on the validation set.
+  4. HallucinationProbe (test)— student probe evaluated on the held-out test set.
 
 Metrics reported: Accuracy, F1-score, AUROC (primary ranking metric).
+Training metrics expose overfitting: a large gap between train and val/test
+scores indicates that the model has memorised the training data.
 """
 
 from __future__ import annotations
@@ -54,7 +57,7 @@ def evaluate_fold(
     idx_val: np.ndarray | None,
     idx_test: np.ndarray,
 ) -> dict:
-    """Train *probe* and return a metrics dict for the val and test splits.
+    """Train *probe* and return a metrics dict for the train, val, and test splits.
 
     If a validation set is available and *probe* exposes a
     ``fit_hyperparameters`` method, the decision threshold is tuned on the
@@ -70,8 +73,10 @@ def evaluate_fold(
 
     Returns:
         A dict with keys ``"{split}_accuracy"``, ``"{split}_f1"``, and
-        ``"{split}_auroc"`` for each available split (``"val"`` and/or
-        ``"test"``).
+        ``"{split}_auroc"`` for each available split (``"train"``,
+        ``"val"`` and/or ``"test"``).  Training metrics are always present;
+        they reflect in-sample performance and are useful for diagnosing
+        overfitting when compared against val/test scores.
     """
     probe.fit(X[idx_train], y[idx_train])
 
@@ -82,7 +87,11 @@ def evaluate_fold(
 
     results: dict = {}
 
-    for split_name, idx_split in [("val", idx_val), ("test", idx_test)]:
+    for split_name, idx_split in [
+        ("train", idx_train),
+        ("val", idx_val),
+        ("test", idx_test),
+    ]:
         if idx_split is None:
             continue
         y_true = y[idx_split]
@@ -116,7 +125,9 @@ def run_evaluation(
 
     1. Trains a majority-class baseline and records its Accuracy and F1.
     2. Instantiates ``ProbeClass()``, trains it on the training split, and
-       records Accuracy, F1, and AUROC for val and test splits.
+       records Accuracy, F1, and AUROC for train, val, and test splits.
+       Training metrics are printed alongside val/test metrics to make
+       overfitting immediately visible.
 
     Progress is printed to stdout.
 
@@ -132,7 +143,7 @@ def run_evaluation(
     Returns:
         List of result dicts, one per fold, each containing ``fold``,
         ``n_train``, ``n_val``, ``n_test``, ``baseline_*``, and probe
-        metrics for available splits.
+        metrics for all available splits (train, val, test).
     """
     fold_results: list[dict] = []
 
@@ -159,6 +170,11 @@ def run_evaluation(
         probe = ProbeClass()
         metrics = evaluate_fold(probe, X, y, idx_train, idx_val, idx_test)
 
+        print(
+            f"  Probe train — Acc: {_fmt(metrics['train_accuracy'])}  "
+            f"F1: {_fmt(metrics['train_f1'])}  "
+            f"AUROC: {_fmt(metrics['train_auroc'])}"
+        )
         if "val_auroc" in metrics:
             print(
                 f"  Probe val  — Acc: {_fmt(metrics['val_accuracy'])}  "
@@ -207,6 +223,9 @@ def print_summary(
     """
     avg_baseline_acc = _nanmean([r["baseline_accuracy"] for r in fold_results])
     avg_baseline_f1 = _nanmean([r["baseline_f1"] for r in fold_results])
+    avg_train_acc = _nanmean([r["train_accuracy"] for r in fold_results])
+    avg_train_f1 = _nanmean([r["train_f1"] for r in fold_results])
+    avg_train_auroc = _nanmean([r["train_auroc"] for r in fold_results])
     avg_test_acc = _nanmean([r["test_accuracy"] for r in fold_results])
     avg_test_f1 = _nanmean([r["test_f1"] for r in fold_results])
     avg_test_auroc = _nanmean([r["test_auroc"] for r in fold_results])
@@ -226,6 +245,10 @@ def print_summary(
         f"  {'1. Majority-class baseline':<35} "
         f"{_fmt(avg_baseline_acc):>9} {_fmt(avg_baseline_f1):>7} {'N/A':>7}"
     )
+    print(
+        f"  {'2. Probe (train split)':<35} "
+        f"{_fmt(avg_train_acc):>9} {_fmt(avg_train_f1):>7} {_fmt(avg_train_auroc):>7}"
+    )
     if not math.isnan(avg_val_auroc):
         avg_val_acc = _nanmean(
             [r.get("val_accuracy", float("nan")) for r in fold_results]
@@ -234,11 +257,11 @@ def print_summary(
             [r.get("val_f1", float("nan")) for r in fold_results]
         )
         print(
-            f"  {'2. Probe (val split)':<35} "
+            f"  {'3. Probe (val split)':<35} "
             f"{_fmt(avg_val_acc):>9} {_fmt(avg_val_f1):>7} {_fmt(avg_val_auroc):>7}"
         )
     print(
-        f"  {'3. Probe (test split)':<35} "
+        f"  {'4. Probe (test split)':<35} "
         f"{_fmt(avg_test_acc):>9} {_fmt(avg_test_f1):>7} {_fmt(avg_test_auroc):>7}"
     )
     print("-" * W)
@@ -311,6 +334,9 @@ def save_results(
             [r["baseline_accuracy"] for r in fold_results]
         ),
         "avg_baseline_f1": _nanmean([r["baseline_f1"] for r in fold_results]),
+        "avg_train_accuracy": _nanmean([r["train_accuracy"] for r in fold_results]),
+        "avg_train_f1": _nanmean([r["train_f1"] for r in fold_results]),
+        "avg_train_auroc": _nanmean([r["train_auroc"] for r in fold_results]),
         "avg_val_auroc": _nanmean(
             [r.get("val_auroc", float("nan")) for r in fold_results]
         ),

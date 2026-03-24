@@ -154,7 +154,7 @@ def load_dataset(
 # ---------------------------------------------------------------------------
 
 
-def _build_text(row: pd.Series) -> str:
+def build_text(row: pd.Series) -> str:
     """Construct the text to encode from a single dataset row.
 
     Concatenates the prompt and the generated response so that the LLM's
@@ -178,6 +178,10 @@ def _build_text(row: pd.Series) -> str:
     response = str(response) if response is not None else ""
 
     return f"{prompt}\n{response}"
+
+
+# Keep the private alias for internal use.
+_build_text = build_text
 
 
 # ---------------------------------------------------------------------------
@@ -368,3 +372,35 @@ def load_data(
         }
 
     return _df_to_split(train_df), _df_to_split(val_df), _df_to_split(test_df)
+
+
+def load_dataframe(
+    file_path: str | None = None,
+    data_dir: str = _DATA_DIR,
+) -> pd.DataFrame:
+    """Load the hallucination dataset and return the full preprocessed DataFrame.
+
+    Unlike ``load_data``, this function does **not** split the data — the caller
+    is responsible for splitting.  This is the entry point used by the
+    evaluation notebook so that students can define their own splitting strategy
+    (random splits, k-fold, group-aware, etc.) directly in the notebook.
+
+    Creates the fallback synthetic CSV if the dataset file is absent.
+
+    Args:
+        file_path: Explicit path to the dataset CSV.  When ``None``,
+                   ``data_dir/dataset.csv`` is used.
+        data_dir:  Directory where ``dataset.csv`` is stored / will be created
+                   when ``file_path`` is ``None``.
+
+    Returns:
+        A pandas DataFrame with exactly the columns listed in ``columns``.
+    """
+    if file_path is None:
+        file_path = os.path.join(data_dir, _DEFAULT_CSV)
+
+    if not os.path.exists(file_path):
+        print(f"[Data] '{file_path}' not found. Creating fallback dataset ...")
+        _build_fallback_csv(file_path)
+
+    return load_dataset(file_path)

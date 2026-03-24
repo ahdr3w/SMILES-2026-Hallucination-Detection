@@ -30,22 +30,13 @@ extraction over a few hundred samples takes 1–5 minutes on GPU.
 pip install -r requirements.txt
 ```
 
-### 2. Run evaluation
+### 2. Open the evaluation notebook
 
-```bash
-python validate.py \
-    --data_file ./data/dataset.csv \
-    --output    results.json \
-    --device    cuda \
-    --batch_size 4
-```
+Open **`validate.ipynb`** in Jupyter or Google Colab and run the cells from top
+to bottom.
 
-The `--device` argument is optional (`cpu`, `cuda`, or `mps`); it is
-auto-detected when omitted.  The `--data_file` argument is also optional; when
-omitted, `./data/dataset.csv` is used and a built-in fallback dataset is
-created automatically if the file is absent.
-
-**Recommended**: use a GPU (`--device cuda`) with `--batch_size 4` for Gemma-3-4b-it.
+**Recommended**: use a GPU runtime (`Runtime → Change runtime type → T4 GPU`)
+and set `BATCH_SIZE = 4` in the configuration cell.
 
 ---
 
@@ -55,10 +46,13 @@ created automatically if the file is absent.
 |------|-------------------|
 | `aggregation.py` | Layer selection and token-pooling strategy |
 | `probe.py` | Probe classifier (skeleton: MLP via `torch.nn.Module`) |
-| `splitting.py` | Train / validation / test split strategy |
+| `validate.ipynb` | **Splitting strategy** and evaluation loop |
 
-**Do not edit** `validate.py`, `model.py`, or `dataset.py` — these are fixed
-infrastructure and will be replaced with the original versions during grading.
+> `splitting.py` contains a reusable helper (`split_data`) that the notebook
+> imports by default — you may modify it or write your splitting logic directly
+> in the notebook.
+
+**Do not edit** `model.py` or `dataset.py` — these are fixed infrastructure.
 
 ---
 
@@ -117,13 +111,13 @@ ratio).  Suggestions for improvement:
 
 ## Evaluation Checkpoints
 
-`validate.py` runs three checkpoints in sequence:
+`validate.ipynb` runs three checkpoints for each split:
 
 | # | Checkpoint | What it measures |
 |---|-----------|-----------------|
 | 1 | **Majority-class baseline** | Trivial classifier; sets the accuracy floor |
 | 2 | **Probe (val split)** | Your probe evaluated on held-out validation data |
-| 3 | **Probe (test split)** | Your probe evaluated on the held-out test set — **primary grading metric** |
+| 3 | **Probe (test split)** | Your probe on the held-out test set — **primary grading metric** |
 
 ### Metrics
 
@@ -161,27 +155,41 @@ The text fed to the LLM for hidden-state extraction is
 
 ## Output JSON
 
-Results are saved to the file specified by `--output`.  Example:
+Results are saved to `results.json` (path set by `OUTPUT_FILE` in the notebook).
+When using the default single split the file looks like:
 
 ```json
 {
-  "baseline_accuracy": 0.5,
-  "baseline_f1": 0.0,
-  "val_accuracy": 0.72,
-  "val_f1": 0.71,
-  "val_auroc": 0.78,
-  "test_accuracy": 0.69,
-  "test_f1": 0.68,
-  "test_auroc": 0.75,
-  "n_train": 140,
-  "n_val": 30,
-  "n_test": 30,
+  "folds": [
+    {
+      "fold": 1,
+      "n_train": 140,
+      "n_val": 30,
+      "n_test": 30,
+      "baseline_accuracy": 0.5,
+      "baseline_f1": 0.0,
+      "val_accuracy": 0.72,
+      "val_f1": 0.71,
+      "val_auroc": 0.78,
+      "test_accuracy": 0.69,
+      "test_f1": 0.68,
+      "test_auroc": 0.75
+    }
+  ],
+  "avg_test_accuracy": 0.69,
+  "avg_test_f1": 0.68,
+  "avg_test_auroc": 0.75,
   "feature_dim": 2560,
+  "n_samples": 200,
+  "n_folds": 1,
   "extract_time_s": 120.5
 }
 ```
 
-**`test_auroc` is the primary metric used for grading.**
+When using k-fold the `folds` array contains one entry per fold and the
+`avg_*` fields contain the mean across all folds.
+
+**`avg_test_auroc` is the primary metric used for grading.**
 
 ---
 
@@ -205,8 +213,8 @@ Results are saved to the file specified by `--output`.  Example:
 
 ## Deliverables
 
-* A trained hallucination detection model (your modified `probe.py` and
-  `aggregation.py`)
+* Your modified `probe.py`, `aggregation.py`, and `validate.ipynb` (with your
+  chosen splitting strategy)
 * A short report describing your approach, what worked, and key insights
 
 ---

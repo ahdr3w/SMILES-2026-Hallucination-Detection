@@ -1,6 +1,6 @@
 # 🔍 SMILES Hallucination Detection
 
-Starter kit for the **SMILES 2026** competition: detect whether a small language
+Detect whether a small language
 model's answer is *hallucinated* (fabricated) or *truthful* using the model's
 own internal representations (hidden states).
 
@@ -261,13 +261,6 @@ feature = hidden_states[-1][real_mask].mean(0)             # (hidden_dim,)
 
 # Max pooling
 feature = hidden_states[-1][real_mask].max(0).values       # (hidden_dim,)
-
-# Attention-score weighted pooling (if you expose attention weights)
-# outputs.attentions: tuple of (batch, n_heads, seq, seq)
-attn = outputs.attentions[-1][sample_idx].mean(0)          # (seq, seq)
-weights = attn[-1, :][real_mask]                           # last-token row
-weights = weights / weights.sum()
-feature = (hidden_states[-1][real_mask] * weights.unsqueeze(1)).sum(0)
 ```
 
 #### Geometric / Statistical Features (`extract_geometric_features`)

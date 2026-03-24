@@ -5,6 +5,7 @@ __pycache__/
 
 # Data files generated at runtime
 data/dataset.jsonl
+data/dataset.csv
 
 # Results
 results.json

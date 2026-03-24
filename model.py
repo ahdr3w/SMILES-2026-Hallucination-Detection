@@ -1,10 +1,10 @@
 """
 model.py — LLM loader and hidden state extractor (fixed infrastructure, do not edit).
 
-Loads ``Qwen/Qwen3.5-0.8B`` and provides utilities to extract hidden states
+Loads ``Qwen/Qwen2.5-0.5B`` and provides utilities to extract hidden states
 from all transformer layers for a list of input texts.
 
-Gemma-3-4b-it is a **decoder-only** (causal) language model.  Its internal
+Qwen2.5-0.5B is a **decoder-only** (causal) language model.  Its internal
 representations are extracted by running a forward pass with the full
 ``prompt + generated_response`` text and collecting the hidden states from
 every transformer layer.  Unlike encoder models, the most informative position
@@ -27,14 +27,14 @@ import torch
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-_DEFAULT_MODEL = "Qwen/Qwen3.5-0.8B"
+_DEFAULT_MODEL = "Qwen/Qwen2.5-0.5B"
 _MAX_LENGTH = 512
 
 
 def get_model_and_tokenizer(
     model_name: str = _DEFAULT_MODEL,
 ) -> tuple[AutoModelForCausalLM, AutoTokenizer]:
-    """Load the pre-trained Gemma-3-4b-it model and its tokenizer.
+    """Load the pre-trained Qwen2.5-0.5B model and its tokenizer.
 
     The model is loaded in ``bfloat16`` to fit within the memory budget of a
     free Google Colab T4 GPU (≈ 15 GB VRAM) while still delivering full
@@ -44,7 +44,7 @@ def get_model_and_tokenizer(
 
     Args:
         model_name: HuggingFace model identifier.  Defaults to
-                    ``"Qwen/Qwen3.5-0.8B"``.
+                    ``"Qwen/Qwen2.5-0.5B"``.
 
     Returns:
         A ``(model, tokenizer)`` tuple.  The model is in eval mode.
@@ -76,7 +76,7 @@ def extract_hidden_states(
     layer choices in ``aggregation.py``.
 
     Args:
-        model:      Gemma-3-4b-it model (from ``get_model_and_tokenizer``).
+        model:      Qwen2.5-0.5B model (from ``get_model_and_tokenizer``).
         tokenizer:  Corresponding tokenizer.
         texts:      List of input strings to encode.  Each string should be
                     the concatenation of the prompt and the generated response.
@@ -139,7 +139,7 @@ def extract_hidden_states(
         mask = attention_mask.cpu()
 
         for i in range(hidden.size(0)):
-            all_hidden_states.append(hidden[i].cpu())  # (n_layers, seq_len, hidden_dim)
+            all_hidden_states.append(hidden[i].cpu().float())  # (n_layers, seq_len, hidden_dim)
             all_attention_masks.append(mask[i])         # (seq_len,)
 
     return all_hidden_states, all_attention_masks

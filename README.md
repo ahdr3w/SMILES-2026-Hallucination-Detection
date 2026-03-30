@@ -66,7 +66,7 @@ source .venv/bin/activate        # Linux / macOS
 # .venv\Scripts\activate.bat     # Windows
 
 pip install -r requirements.txt
-jupyter notebook solution.ipynb
+python solution.py
 ```
 
 ## Dataset

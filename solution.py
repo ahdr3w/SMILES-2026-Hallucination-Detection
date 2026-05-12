@@ -50,15 +50,98 @@ from evaluate import print_summary, run_evaluation, save_predictions, save_resul
 from model import MAX_LENGTH, get_model_and_tokenizer
 from probe import HallucinationProbe
 from splitting import split_data
+from sklearn.model_selection import train_test_split
+
+import os
+
+from experiment_logger import (
+    start_mlflow_run,
+    log_dataset_info,
+    log_fold_results,
+    log_results_json,
+    log_artifacts,
+    end_mlflow_run,
+)
 
 # ---------------------------------------------------------------------
 
 DATA_FILE     = "./data/dataset.csv"   # path to the dataset CSV
 OUTPUT_FILE   = "results.json"         # where to write the results summary
 BATCH_SIZE    = 4
-USE_GEOMETRIC = False                  # set True to enable geometric feature extraction
+USE_GEOMETRIC = True                  # set True to enable geometric feature extraction
 TEST_FILE        = "./data/test.csv"   # competition test set (labels are null)
 PREDICTIONS_FILE = "predictions.csv"   # output file with predicted labels
+
+MLFLOW_TRACKING_URI = "file:/content/drive/MyDrive/SMILES-2026/SMILES-2026-Hallucination-Detection/mlruns"
+
+RUN_NAME = "exp29_raw_single_layer_m4_trajectory_default_pca128_ensemble5_acc"
+
+EXPERIMENT_CONFIG = {
+    "run_name": RUN_NAME,
+    "data_file": DATA_FILE,
+    "test_file": TEST_FILE,
+    "batch_size": BATCH_SIZE,
+    "use_geometric": True,
+    "max_length": MAX_LENGTH,
+
+    "aggregation": "single_raw_layer_plus_default_trajectory_features",
+    "features": "single_layer_last_token_plus_trajectory_scalars",
+    "raw_feature_dim": 1017,
+    "feature_dim_after_pca": 128,
+    "pooling": ["last"],
+    "raw_layers": [-4, -8, -12, -16],
+    "trajectory_layers": [-8, -10, -12, -14, -16],
+    "token_window": 32,
+    "token_offset": -2,
+
+    "raw_vector": {
+        "enabled": True,
+        "source": "last_token",
+        "layers": [-4, -8, -12, -16],
+        "dim": 896,
+    },
+
+    "scalar_features": {
+        "enabled": True,
+        "n_features": 121,
+    },
+
+    "dim_reduction": "PCA",
+    "pca_n_components": 128,
+    "pca_fit": "train_only",
+
+    "probe": "ensemble_regularized_mlp",
+    "ensemble_size": 5,
+    "ensemble_seeds": [42, 43, 44, 45, 46],
+    "base_architecture": "128_8_1",
+    "hidden_dim": 8,
+    "activation": "ReLU",
+    "dropout": 0.5,
+    "scaler": "StandardScaler",
+
+    "optimizer": "AdamW",
+    "lr": 1e-3,
+    "weight_decay": 1e-2,
+    "epochs": 200,
+    "loss": "BCEWithLogitsLoss",
+    "pos_weight": "neg_pos_ratio",
+
+    "split_strategy": "stratified_5fold_with_inner_val",
+    "n_splits": 5,
+    "val_size": 0.15,
+    "seed": 42,
+
+    "threshold_tuning": True,
+    "threshold_metric": "validation_accuracy",
+    "target_metric": "accuracy",
+
+    "hypothesis": (
+        "A single intermediate layer may contain stronger hallucination signal "
+        "than a fixed multi-layer concat. Reducing raw hidden dimensions from "
+        "3584 to 896 may also reduce overfitting while preserving the most useful "
+        "layer-level representation."
+    ),
+}
 
 assert OUTPUT_FILE == "results.json"
 assert PREDICTIONS_FILE == "predictions.csv"
@@ -70,6 +153,14 @@ if __name__=='__main__':
         device = torch.device("mps")
     else:
         device = torch.device("cpu")
+
+    EXPERIMENT_CONFIG["device"] = str(device)
+
+    mlflow_run = start_mlflow_run(
+        run_name=RUN_NAME,
+        config=EXPERIMENT_CONFIG,
+        tracking_uri=MLFLOW_TRACKING_URI,
+    )
 
     print(f"Device       : {device}")
     print(f"Data         : {DATA_FILE}")
@@ -87,6 +178,12 @@ if __name__=='__main__':
     print(f"Loaded {n_total} samples  "
         f"({all_labels.sum()} hallucinated / {(all_labels == 0).sum()} truthful)")
     
+    log_dataset_info(
+        n_samples=n_total,
+        n_hallucinated=int(all_labels.sum()),
+        n_truthful=int((all_labels == 0).sum()),
+    )
+
     # Preview the raw data
     print(f"Columns : {df.columns.tolist()}")
     print(f"Rows    : {len(df)}")
@@ -110,6 +207,7 @@ if __name__=='__main__':
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     model.to(device)
+    model.eval()
 
     all_features: list = []
     t0 = time.time()
@@ -158,8 +256,18 @@ if __name__=='__main__':
     X = np.vstack([f.numpy() for f in all_features])   # shape: (N, feature_dim)
     y = all_labels                                       # shape: (N,)
 
+    print("X checksum:", float(np.sum(X)))
+    print("X mean/std:", float(X.mean()), float(X.std()))
+
     print(f"Feature matrix : {X.shape}  (feature_dim = {X.shape[1]})")
     print(f"Geometric feats: {USE_GEOMETRIC}")
+
+    log_dataset_info(
+        n_samples=len(X),
+        n_hallucinated=int(y.sum()),
+        n_truthful=int((y == 0).sum()),
+        feature_dim=int(X.shape[1]),
+    )
 
     splits = split_data(y, df)
 
@@ -173,7 +281,8 @@ if __name__=='__main__':
     print_summary(fold_results, X.shape[1], len(X), extract_time)
     save_results(fold_results, X.shape[1], len(X), extract_time, OUTPUT_FILE)
 
-    
+    log_fold_results(fold_results)
+    log_results_json(OUTPUT_FILE)
 
     # ── Load test data ────────────────────────────────────────────────────────
     df_test    = pd.read_csv(TEST_FILE)
@@ -220,9 +329,33 @@ if __name__=='__main__':
         np.concatenate([idx_tr, idx_va]) if idx_va is not None else idx_tr
         for idx_tr, idx_va, _ in splits
     ]))
+
+    idx_train_final, idx_val_final = train_test_split(
+        idx_non_test,
+        test_size=0.15,
+        random_state=42,
+        stratify=y[idx_non_test],
+    )
+
+    print(
+      f"Final split: train={len(idx_train_final)} "
+      f"val={len(idx_val_final)}"
+    )
+
     final_probe = HallucinationProbe()
-    final_probe.fit(X[idx_non_test], y[idx_non_test])
+    final_probe.fit(X[idx_train_final], y[idx_train_final])
+    final_probe.fit_hyperparameters(X[idx_val_final], y[idx_val_final])
+
+    print(f"Final tuned threshold: {final_probe._threshold:.4f}")
 
     # ── Predict and save ────────────────────────────────────────────────────
     save_predictions(final_probe, X_test, test_ids, PREDICTIONS_FILE)
+
+    log_artifacts([
+        OUTPUT_FILE,
+        PREDICTIONS_FILE,
+        "SOLUTION.md",
+    ])
+
+    end_mlflow_run()
 

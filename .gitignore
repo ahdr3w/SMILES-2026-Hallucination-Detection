@@ -13,6 +13,13 @@ results.json
 # HuggingFace model cache
 .cache/
 
+# MLflow
+mlruns/
+__pycache__/
+*.pkl
+*.pt
+*.bin
+
 # Virtual environments
 .venv/
 venv/
